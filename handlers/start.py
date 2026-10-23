@@ -47,3 +47,18 @@ async def cmd_help(message: Message):
         reply_markup=get_main_menu_keyboard(),
         parse_mode="Markdown"
     )
+
+@router.message(Command("id", "myid"))
+async def cmd_myid(message: Message):
+    from config import ADMIN_ID
+    user_id = message.from_user.id
+    username = f"@{message.from_user.username}" if message.from_user.username else "нет"
+    is_admin = (user_id == ADMIN_ID)
+    await message.answer(
+        f"🆔 **Ваш профиль в Telegram:**\n"
+        f"• Telegram ID: `{user_id}`\n"
+        f"• Username: {username}\n"
+        f"• Доступ администратора: {'✅ Да' if is_admin else '❌ Нет'}",
+        parse_mode="Markdown"
+    )
+
