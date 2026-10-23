@@ -47,13 +47,10 @@ def get_popular_services_keyboard() -> InlineKeyboardMarkup:
     services = [
         ("Яндекс Плюс", "Яндекс Плюс"),
         ("Telegram Premium", "Telegram Premium"),
-        ("Кинопоиск", "Кинопоиск"),
         ("Личный VPN", "Личный VPN"),
         ("YouTube Premium", "YouTube Premium"),
-        ("Spotify", "Spotify"),
         ("Premier", "Premier"),
         ("Иви", "Иви"),
-        ("Тинькофф / T-Pro", "T-Банк Pro"),
     ]
     
     rows = []
@@ -93,8 +90,16 @@ def get_trial_dates_keyboard() -> InlineKeyboardMarkup:
 def get_regular_period_keyboard() -> InlineKeyboardMarkup:
     keyboard = [
         [
-            InlineKeyboardButton(text="📅 Каждый месяц", callback_data="period_monthly"),
-            InlineKeyboardButton(text="📆 Раз в год", callback_data="period_yearly"),
+            InlineKeyboardButton(text="📅 1 месяц", callback_data="period_months_1"),
+            InlineKeyboardButton(text="📆 3 месяца", callback_data="period_months_3"),
+            InlineKeyboardButton(text="🗓 6 месяцев", callback_data="period_months_6"),
+        ],
+        [
+            InlineKeyboardButton(text="📅 1 год", callback_data="period_months_12"),
+            InlineKeyboardButton(text="⏱ 1 неделя", callback_data="period_days_7"),
+        ],
+        [
+            InlineKeyboardButton(text="✏️ Ввести свой срок", callback_data="period_custom"),
         ],
         [
             InlineKeyboardButton(text="❌ Отмена", callback_data="cancel_action"),

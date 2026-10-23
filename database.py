@@ -162,8 +162,21 @@ async def get_user_stats(user_id: int) -> Dict[str, Any]:
             trials_count += 1
         else:
             regulars_count += 1
-            if s["period"] == "yearly":
+            period = s.get("period", "monthly")
+            if period in ("yearly", "months:12"):
                 total_monthly += s["price"] / 12.0
+            elif period.startswith("months:"):
+                try:
+                    m = max(1, int(period.split(":")[1]))
+                    total_monthly += s["price"] / m
+                except (ValueError, IndexError):
+                    total_monthly += s["price"]
+            elif period.startswith("days:"):
+                try:
+                    d = max(1, int(period.split(":")[1]))
+                    total_monthly += s["price"] * (30.0 / d)
+                except (ValueError, IndexError):
+                    total_monthly += s["price"]
             else:
                 total_monthly += s["price"]
                 

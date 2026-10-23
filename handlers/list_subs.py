@@ -1,5 +1,5 @@
 from __future__ import annotations
-from datetime import datetime, date
+from datetime import datetime, date, timedelta
 from typing import Optional, Union
 from aiogram import Router, F
 from aiogram.types import Message, CallbackQuery
@@ -17,6 +17,46 @@ from keyboards import (
 )
 
 router = Router()
+
+def format_period_human(period: str) -> str:
+    """Красиво форматирует период подписки для отображения"""
+    if period in ("monthly", "months:1"):
+        return "1 месяц"
+    elif period in ("yearly", "months:12"):
+        return "1 год"
+    elif period == "months:3":
+        return "3 месяца"
+    elif period == "months:6":
+        return "6 месяцев"
+    elif period.startswith("months:"):
+        m = period.split(":")[1]
+        return f"Каждые {m} мес."
+    elif period == "days:7":
+        return "1 неделя"
+    elif period.startswith("days:"):
+        d = period.split(":")[1]
+        return f"Каждые {d} дн."
+    elif period == "once":
+        return "Разово (триал)"
+    return period
+
+def get_delta_days_for_period(period: str) -> int:
+    """Определяет количество дней для продления подписки"""
+    if period in ("monthly", "months:1"):
+        return 30
+    elif period in ("yearly", "months:12"):
+        return 365
+    elif period.startswith("months:"):
+        try:
+            return int(period.split(":")[1]) * 30
+        except ValueError:
+            return 30
+    elif period.startswith("days:"):
+        try:
+            return int(period.split(":")[1])
+        except ValueError:
+            return 30
+    return 30
 
 # Просмотр всех подписок (кнопка меню)
 @router.message(F.text == "📋 Мои подписки")
@@ -93,7 +133,7 @@ async def view_sub_detail(callback: CallbackQuery):
         formatted_date = sub["next_date"]
 
     sub_type = "⏳ Пробный период (триал)" if sub["is_trial"] else "💳 Регулярная подписка"
-    period_str = "Ежемесячно" if sub["period"] == "monthly" else ("Ежегодно" if sub["period"] == "yearly" else "Разово")
+    period_str = "Разово (триал)" if sub["is_trial"] else format_period_human(sub["period"])
 
     text = (
         f"📌 **{sub['title']}**\n\n"
@@ -130,14 +170,14 @@ async def convert_sub_handler(callback: CallbackQuery):
     sub_id = int(callback.data.replace("convert_sub_", ""))
     user_id = callback.from_user.id
     
-    success = await convert_trial_to_regular(sub_id, user_id, period="monthly")
+    success = await convert_trial_to_regular(sub_id, user_id, period="months:1")
     if success:
         await callback.answer("🎉 Триал переведен в постоянную подписку на 1 месяц!", show_alert=True)
         await view_sub_detail(callback)
     else:
         await callback.answer("Ошибка при изменении подписки.", show_alert=True)
 
-# Продлить дату на 30 дней вперед
+# Продлить дату на период вперед
 @router.callback_query(F.data.startswith("extend_sub_"))
 async def extend_sub_handler(callback: CallbackQuery):
     sub_id = int(callback.data.replace("extend_sub_", ""))
@@ -153,11 +193,12 @@ async def extend_sub_handler(callback: CallbackQuery):
     except ValueError:
         curr_date = date.today()
         
-    from datetime import timedelta
-    new_date = (curr_date + timedelta(days=30)).strftime("%Y-%m-%d")
+    delta_days = get_delta_days_for_period(sub.get("period", "monthly"))
+    new_date = (curr_date + timedelta(days=delta_days)).strftime("%Y-%m-%d")
     await update_next_date(sub_id, new_date)
     
-    await callback.answer("📅 Дата продлена на 30 дней!", show_alert=True)
+    formatted_new_date = datetime.strptime(new_date, "%Y-%m-%d").strftime("%d.%m.%Y")
+    await callback.answer(f"📅 Дата продлена до {formatted_new_date}!", show_alert=True)
     await view_sub_detail(callback)
 
 # Обработка действий прямо из уведомлений
@@ -188,13 +229,13 @@ async def notif_extend_handler(callback: CallbackQuery):
     except ValueError:
         curr_date = date.today()
         
-    from datetime import timedelta
-    new_date = (curr_date + timedelta(days=30)).strftime("%Y-%m-%d")
+    delta_days = get_delta_days_for_period(sub.get("period", "monthly"))
+    new_date = (curr_date + timedelta(days=delta_days)).strftime("%Y-%m-%d")
     await update_next_date(sub_id, new_date)
     
+    formatted_new_date = datetime.strptime(new_date, "%Y-%m-%d").strftime("%d.%m.%Y")
     await callback.message.edit_text(
-        f"👍 Дата списания для **{sub['title']}** успешно перенесена на 30 дней (до {new_date}).",
+        f"👍 Дата списания для **{sub['title']}** успешно перенесена (до {formatted_new_date}).",
         parse_mode="Markdown"
     )
     await callback.answer()
-

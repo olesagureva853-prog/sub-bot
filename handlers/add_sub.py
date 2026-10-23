@@ -25,6 +25,7 @@ class AddSubStates(StatesGroup):
     custom_title = State()
     enter_price = State()
     select_period = State()
+    custom_period = State()
     select_date = State()
     custom_date = State()
 
@@ -138,19 +139,64 @@ async def process_price(message: Message, state: FSMContext):
         await message.answer(text, reply_markup=get_regular_period_keyboard(), parse_mode="Markdown")
 
 # Выбор периода регулярной подписки
-@router.callback_query(AddSubStates.select_period, F.data.in_(["period_monthly", "period_yearly"]))
+@router.callback_query(AddSubStates.select_period, F.data.startswith("period_"))
 async def process_period(callback: CallbackQuery, state: FSMContext):
-    period = "monthly" if callback.data == "period_monthly" else "yearly"
+    if callback.data == "period_custom":
+        await state.set_state(AddSubStates.custom_period)
+        await callback.message.edit_text(
+            "✏️ **Укажите свой период списания:**\n\n"
+            "Например:\n"
+            "• `45 дней` (или просто число: `45`)\n"
+            "• `2 месяца` (или `3 мес`)\n"
+            "• `2 недели`\n"
+            "• `2 года`\n\n"
+            "_(Напишите текстом)_:",
+            reply_markup=get_cancel_keyboard(),
+            parse_mode="Markdown"
+        )
+        await callback.answer()
+        return
+
+    if callback.data.startswith("period_months_"):
+        months = int(callback.data.replace("period_months_", ""))
+        period = f"months:{months}"
+    elif callback.data.startswith("period_days_"):
+        days = int(callback.data.replace("period_days_", ""))
+        period = f"days:{days}"
+    elif callback.data == "period_yearly":
+        period = "months:12"
+    else:
+        period = "months:1"
+
     await state.update_data(period=period)
-    await state.set_state(AddSubStates.custom_date)
-    
-    await callback.message.edit_text(
-        "📆 **Введите дату следующего списания** в формате `ДД.ММ` или `ДД.ММ.ГГГГ`\n"
-        "_(Например: `15.11` или `01.12.2026`)_:",
-        reply_markup=get_cancel_keyboard(),
-        parse_mode="Markdown"
-    )
+    await ask_next_payment_date(callback.message, state, is_callback=True)
     await callback.answer()
+
+@router.message(AddSubStates.custom_period)
+async def process_custom_period_text(message: Message, state: FSMContext):
+    parsed = parse_period_string(message.text)
+    if not parsed:
+        await message.answer(
+            "⚠️ Не удалось распознать срок.\n"
+            "Пожалуйста, напишите, например: `45 дней`, `2 месяца` или `2 недели` (или просто число дней):",
+            parse_mode="Markdown"
+        )
+        return
+        
+    await state.update_data(period=parsed)
+    await ask_next_payment_date(message, state, is_callback=False)
+
+async def ask_next_payment_date(message: Message, state: FSMContext, is_callback: bool = False):
+    await state.set_state(AddSubStates.custom_date)
+    text = (
+        "📆 **Введите дату следующего списания** в формате `ДД.ММ` или `ДД.ММ.ГГГГ`\n"
+        "_(Например: `15.11` или `01.12.2026`)_:"
+    )
+    if is_callback:
+        await message.edit_text(text, reply_markup=get_cancel_keyboard(), parse_mode="Markdown")
+    else:
+        await message.answer(text, reply_markup=get_cancel_keyboard(), parse_mode="Markdown")
+
 
 # Быстрый выбор даты триала кнопками
 @router.callback_query(AddSubStates.select_date, F.data.startswith("days_"))
@@ -220,6 +266,69 @@ def parse_date_string(date_str: str) -> date | None:
             
     return None
 
+def parse_period_string(text: str) -> str | None:
+    """Парсит введенный пользователем срок в формат months:X или days:Y"""
+    text = text.lower().strip()
+    
+    # Недели
+    match_w = re.search(r"(\d+)\s*(нед|week)", text)
+    if match_w:
+        weeks = int(match_w.group(1))
+        if weeks > 0:
+            return f"days:{weeks * 7}"
+            
+    # Месяцы
+    match_m = re.search(r"(\d+)\s*(мес|month)", text)
+    if match_m:
+        months = int(match_m.group(1))
+        if months > 0:
+            return f"months:{months}"
+            
+    # Года
+    match_y = re.search(r"(\d+)\s*(год|лет|year)", text)
+    if match_y:
+        years = int(match_y.group(1))
+        if years > 0:
+            return f"months:{years * 12}"
+            
+    # Дни
+    match_d = re.search(r"(\d+)\s*(дн|день|дня|дней|day)", text)
+    if match_d:
+        days = int(match_d.group(1))
+        if days > 0:
+            return f"days:{days}"
+            
+    # Просто число -> считаем как дни
+    if text.isdigit():
+        num = int(text)
+        if num > 0:
+            return f"days:{num}"
+            
+    return None
+
+def format_period_human(period: str) -> str:
+    """Красиво форматирует период для человека"""
+    if period in ("monthly", "months:1"):
+        return "1 месяц"
+    elif period in ("yearly", "months:12"):
+        return "1 год"
+    elif period == "months:3":
+        return "3 месяца"
+    elif period == "months:6":
+        return "6 месяцев"
+    elif period.startswith("months:"):
+        m = period.split(":")[1]
+        return f"Каждые {m} мес."
+    elif period == "days:7":
+        return "1 неделя"
+    elif period.startswith("days:"):
+        d = period.split(":")[1]
+        return f"Каждые {d} дн."
+    elif period == "once":
+        return "Разово (триал)"
+    return period
+
+
 async def save_and_finish(message: Message, state: FSMContext, is_callback: bool = False):
     """Сохранение в базу и поздравление"""
     data = await state.get_data()
@@ -250,15 +359,18 @@ async def save_and_finish(message: Message, state: FSMContext, is_callback: bool
     if is_trial:
         header = "✅ **Пробный период успешно добавлен!**"
         action_note = f"⚠️ Я напомню вам за 3 дня и за 1 день до списания, чтобы вы успели его отменить."
+        period_line = ""
     else:
         header = "✅ **Регулярная подписка успешно добавлена!**"
         action_note = f"🔔 Я буду присылать напоминания перед каждым списанием."
+        period_line = f"🗓 **Периодичность:** {format_period_human(period)}\n"
         
     text = (
         f"{header}\n\n"
         f"📌 **Сервис:** {title}\n"
         f"💰 **Сумма:** {price:.2f} {currency}\n"
-        f"📅 **Дата списания:** {date_display} (через {days_left} дн.)\n\n"
+        f"{period_line}"
+        f"📅 **Дата следующего списания:** {date_display} (через {days_left} дн.)\n\n"
         f"{action_note}"
     )
     
