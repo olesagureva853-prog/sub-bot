@@ -209,3 +209,18 @@ async def get_admin_stats() -> Dict[str, int]:
             "subs_count": subs_count,
         }
 
+async def is_new_user(user_id: int) -> bool:
+    """Проверяет, зарегистрирован ли уже пользователь."""
+    async with aiosqlite.connect(DB_PATH) as db:
+        async with db.execute("SELECT 1 FROM users WHERE user_id = ?", (user_id,)) as cursor:
+            return (await cursor.fetchone()) is None
+
+async def get_all_users() -> List[Dict[str, Any]]:
+    """Возвращает список всех зарегистрированных пользователей."""
+    async with aiosqlite.connect(DB_PATH) as db:
+        db.row_factory = aiosqlite.Row
+        async with db.execute("SELECT * FROM users ORDER BY created_at ASC") as cursor:
+            rows = await cursor.fetchall()
+            return [dict(row) for row in rows]
+
+

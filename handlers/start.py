@@ -31,7 +31,27 @@ HELP_TEXT = (
 async def cmd_start(message: Message):
     user = message.from_user
     if user:
+        from database import is_new_user, upsert_user
+        from config import ADMIN_ID
+        is_new = await is_new_user(user.id)
         await upsert_user(user.id, user.username, user.first_name)
+        
+        # Если пришел новый пользователь (и это не сам админ) — шлем алерт админу в личку!
+        if is_new and user.id != ADMIN_ID:
+            try:
+                username_str = f"@{user.username}" if user.username else "нет юзернейма"
+                await message.bot.send_message(
+                    chat_id=ADMIN_ID,
+                    text=(
+                        f"🎉 **Новый пользователь запустил бота!**\n\n"
+                        f"• **Имя:** {user.first_name or 'Без имени'}\n"
+                        f"• **Юзернейм:** {username_str}\n"
+                        f"• **Telegram ID:** `{user.id}`"
+                    ),
+                    parse_mode="Markdown"
+                )
+            except Exception:
+                pass
     
     await message.answer(
         START_TEXT,
@@ -51,8 +71,12 @@ async def cmd_help(message: Message):
 @router.message(Command("id", "myid"))
 async def cmd_myid(message: Message):
     from config import ADMIN_ID
-    user_id = message.from_user.id
-    username = f"@{message.from_user.username}" if message.from_user.username else "нет"
+    from database import upsert_user
+    user = message.from_user
+    user_id = user.id if user else 0
+    if user:
+        await upsert_user(user.id, user.username, user.first_name)
+    username = f"@{user.username}" if (user and user.username) else "нет"
     is_admin = (user_id == ADMIN_ID)
     await message.answer(
         f"🆔 **Ваш профиль в Telegram:**\n"
@@ -62,6 +86,28 @@ async def cmd_myid(message: Message):
         parse_mode="Markdown"
     )
 
+@router.message(Command("users"))
+async def cmd_users(message: Message):
+    """Показывает список всех пользователей владельцу бота."""
+    from config import ADMIN_ID
+    from database import get_all_users
+
+    if message.from_user.id != ADMIN_ID:
+        return
+
+    users = await get_all_users()
+    if not users:
+        await message.answer("👥 В базе пока нет зарегистрированных пользователей.")
+        return
+
+    lines = [f"👥 **Список пользователей бота (всего: {len(users)}):**\n"]
+    for i, u in enumerate(users, 1):
+        uname = f"@{u['username']}" if u.get("username") else "без юзернейма"
+        fname = u.get("first_name") or "Пользователь"
+        lines.append(f"{i}. **{fname}** ({uname}) — ID: `{u['user_id']}`")
+
+    await message.answer("\n".join(lines), parse_mode="Markdown")
+
 @router.message(Command("backup"))
 async def cmd_backup(message: Message):
     """Отправляет файл базы данных в чат владельца бота."""
@@ -69,7 +115,7 @@ async def cmd_backup(message: Message):
     from datetime import datetime
     from aiogram.types import FSInputFile
     from config import ADMIN_ID, DB_PATH
-    from database import get_admin_stats
+    from database import get_admin_stats, get_all_users
 
     if message.from_user.id != ADMIN_ID:
         return  # Не отвечаем обычным пользователям
@@ -79,8 +125,18 @@ async def cmd_backup(message: Message):
         return
 
     stats = await get_admin_stats()
+    all_users = await get_all_users()
     now_str = datetime.now().strftime("%d.%m.%Y %H:%M")
     size_kb = os.path.getsize(DB_PATH) / 1024
+
+    users_preview = []
+    for u in all_users[:5]:
+        uname = f"@{u['username']}" if u.get("username") else f"ID {u['user_id']}"
+        users_preview.append(f"• {u.get('first_name') or 'User'} ({uname})")
+
+    users_text = "\n".join(users_preview)
+    if len(all_users) > 5:
+        users_text += f"\n• ...и ещё {len(all_users) - 5}"
 
     caption = (
         f"📦 **Резервная копия базы данных SubTrack**\n\n"
@@ -88,7 +144,8 @@ async def cmd_backup(message: Message):
         f"• 💳 **Всего подписок/триалов:** {stats['subs_count']}\n"
         f"• 📊 **Размер:** {size_kb:.1f} КБ\n"
         f"• 🕒 **Создан:** {now_str}\n\n"
-        f"💡 _Сохраните этот файл на компьютер или в «Избранное». Если что-то случится с сервером, вы всегда сможете восстановить данные._"
+        f"👤 **Пользователи:**\n{users_text}\n\n"
+        f"💡 _Отправьте /users, чтобы посмотреть полный список людей._"
     )
 
     db_file = FSInputFile(DB_PATH, filename=f"subscriptions_backup_{datetime.now().strftime('%Y%m%d_%H%M')}.db")
@@ -116,8 +173,10 @@ async def cmd_admin(message: Message):
         f"• 👥 **Всего пользователей:** {stats['users_count']}\n"
         f"• 💳 **Всего подписок в базе:** {stats['subs_count']}\n"
         f"• 💾 **Размер базы:** {size_kb:.1f} КБ\n\n"
-        f"📥 Отправьте команду `/backup`, чтобы получить свежий файл базы данных."
+        f"👥 Напишите `/users` для просмотра списка людей.\n"
+        f"📥 Напишите `/backup`, чтобы получить свежий файл базы данных."
     )
     await message.answer(text, parse_mode="Markdown")
+
 
 
