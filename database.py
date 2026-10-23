@@ -196,3 +196,16 @@ async def get_user_stats(user_id: int) -> Dict[str, Any]:
         "total_yearly": round(total_monthly * 12, 2),
         "nearest_sub": nearest_sub
     }
+
+async def get_admin_stats() -> Dict[str, int]:
+    """Статистика для владельца бота: общее число пользователей и подписок"""
+    async with aiosqlite.connect(DB_PATH) as db:
+        async with db.execute("SELECT COUNT(*) FROM users") as cursor:
+            users_count = (await cursor.fetchone())[0]
+        async with db.execute("SELECT COUNT(*) FROM subscriptions") as cursor:
+            subs_count = (await cursor.fetchone())[0]
+        return {
+            "users_count": users_count,
+            "subs_count": subs_count,
+        }
+

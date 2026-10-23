@@ -14,3 +14,7 @@ BOT_TOKEN = os.getenv("BOT_TOKEN", "")
 DEFAULT_CURRENCY = "₽"
 DEFAULT_NOTIFY_HOUR = 10  # 10:00 утра
 DEFAULT_TIMEZONE = "Europe/Moscow"
+
+# ID администратора (владельца бота) для бэкапов и статистики
+ADMIN_ID = int(os.getenv("ADMIN_ID", "1751902619"))
+
